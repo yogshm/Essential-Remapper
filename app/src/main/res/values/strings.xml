@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Essential Button Diagnostic</string>
+    <string name="accessibility_service_name">Essential Button Diagnostic Service</string>
+    <string name="accessibility_service_description">Diagnostic service to test and verify whether the physical Essential Button generates Android KeyEvents on Nothing OS.</string>
+</resources>
