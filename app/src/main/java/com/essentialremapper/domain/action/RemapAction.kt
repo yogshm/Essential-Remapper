@@ -18,6 +18,11 @@ sealed interface RemapAction {
         override val title = "Toggle Flashlight"
     }
 
+    data object Camera : RemapAction {
+        override val id = "CAMERA"
+        override val title = "Launch Camera"
+    }
+
     data object RotationLock : RemapAction {
         override val id = "ROTATION_LOCK"
         override val title = "Toggle Rotation Lock"
@@ -74,13 +79,16 @@ sealed interface RemapAction {
         NOTIFICATIONS("Open Notifications"),
         QUICK_SETTINGS("Open Quick Settings"),
         LOCK_SCREEN("Lock Screen"),
+        BACK("Back"),
+        HOME("Home"),
+        RECENTS("Recents"),
         TAKE_SCREENSHOT("Take Screenshot")
     }
 
     companion object {
         val DEFAULT_SINGLE_PRESS: RemapAction = Flashlight
-        val DEFAULT_DOUBLE_PRESS: RemapAction = LaunchApp(appName = "Camera", packageName = "com.nothing.camera")
-        val DEFAULT_LONG_PRESS: RemapAction = MediaPlayPause
+        val DEFAULT_DOUBLE_PRESS: RemapAction = Camera
+        val DEFAULT_LONG_PRESS: RemapAction = MediaNextTrack
 
         /**
          * Simple string serializer for DataStore persistence.
@@ -89,6 +97,7 @@ sealed interface RemapAction {
             return when {
                 value == "NONE" -> None
                 value == "FLASHLIGHT" -> Flashlight
+                value == "CAMERA" -> Camera
                 value == "ROTATION_LOCK" -> RotationLock
                 value == "MEDIA_PLAY_PAUSE" -> MediaPlayPause
                 value == "MEDIA_NEXT_TRACK" -> MediaNextTrack
@@ -98,6 +107,14 @@ sealed interface RemapAction {
                     val pkg = parts.getOrNull(0) ?: ""
                     val name = parts.getOrNull(1) ?: "App"
                     LaunchApp(pkg, name)
+                }
+                value.startsWith("APP_SHORTCUT:") -> {
+                    val parts = value.removePrefix("APP_SHORTCUT:").split("|", limit = 4)
+                    val pkg = parts.getOrNull(0) ?: ""
+                    val id = parts.getOrNull(1) ?: ""
+                    val label = parts.getOrNull(2) ?: "Shortcut"
+                    val intentUri = parts.getOrNull(3) ?: ""
+                    AppShortcut(pkg, id, label, intentUri)
                 }
                 value.startsWith("DEEP_LINK:") -> {
                     DeepLink(value.removePrefix("DEEP_LINK:"))
@@ -115,12 +132,13 @@ sealed interface RemapAction {
             return when (action) {
                 is None -> "NONE"
                 is Flashlight -> "FLASHLIGHT"
+                is Camera -> "CAMERA"
                 is RotationLock -> "ROTATION_LOCK"
                 is MediaPlayPause -> "MEDIA_PLAY_PAUSE"
                 is MediaNextTrack -> "MEDIA_NEXT_TRACK"
                 is MediaPreviousTrack -> "MEDIA_PREVIOUS_TRACK"
                 is LaunchApp -> "LAUNCH_APP:${action.packageName}|${action.appName}"
-                is AppShortcut -> "APP_SHORTCUT:${action.packageName}|${action.shortcutId}|${action.shortcutLabel}"
+                is AppShortcut -> "APP_SHORTCUT:${action.packageName}|${action.shortcutId}|${action.shortcutLabel}|${action.intentUri}"
                 is DeepLink -> "DEEP_LINK:${action.uri}"
                 is SystemAction -> "SYSTEM_ACTION:${action.systemType.name}"
             }

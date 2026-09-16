@@ -1,5 +1,10 @@
 package com.essentialremapper.ui.home
 
+import android.content.Context
+import android.content.Intent
+import android.graphics.drawable.Drawable
+import android.net.Uri
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -14,18 +19,31 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CropLandscape
 import androidx.compose.material.icons.filled.FlashlightOn
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.ScreenRotation
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.TouchApp
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -37,34 +55,46 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.platform.LocalContext
-import com.essentialremapper.accessibility.EssentialButtonAccessibilityService
-import com.essentialremapper.util.AccessibilityHelper
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.graphics.drawable.toBitmap
+import com.essentialremapper.accessibility.EssentialButtonAccessibilityService
 import com.essentialremapper.data.model.RemapperSettings
 import com.essentialremapper.domain.action.RemapAction
+import com.essentialremapper.domain.action.handlers.DeepLinkHandler
 import com.essentialremapper.domain.device.DeviceProfile
 import com.essentialremapper.domain.gesture.GestureType
 import com.essentialremapper.ui.theme.NothingRed
 import com.essentialremapper.ui.theme.StatusGreenLight
+import com.essentialremapper.util.AccessibilityHelper
+
+data class LaunchableAppInfo(
+    val appName: String,
+    val packageName: String,
+    val iconDrawable: Drawable?
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -75,8 +105,14 @@ fun HomeScreen(
     onNavigateToSettings: () -> Unit,
     onNavigateToDiagnostic: () -> Unit
 ) {
+    val context = LocalContext.current
     var activeGestureForSheet by remember { mutableStateOf<GestureType?>(null) }
-    val sheetState = rememberModalBottomSheetState()
+    var isAppPickerOpen by remember { mutableStateOf(false) }
+    var isDeepLinkDialogOpen by remember { mutableStateOf(false) }
+    var deepLinkInput by remember { mutableStateOf("https://") }
+    var deepLinkError by remember { mutableStateOf<String?>(null) }
+
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     Scaffold(
         topBar = {
@@ -177,83 +213,524 @@ fun HomeScreen(
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = "Phase 2 active. Tap any card to customize action persistence.",
+                            text = "Actions execute natively through AccessibilityService with zero polling and zero telemetry.",
                             fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.secondary
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 16.sp
                         )
                     }
                 }
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(16.dp))
             }
         }
     }
 
+    // Categorized Action Selection Bottom Sheet
     if (activeGestureForSheet != null) {
         val gesture = activeGestureForSheet!!
         ModalBottomSheet(
             onDismissRequest = { activeGestureForSheet = null },
             sheetState = sheetState,
-            containerColor = MaterialTheme.colorScheme.surface
+            containerColor = Color(0xFF161616)
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 12.dp)
+                    .padding(horizontal = 20.dp, vertical = 8.dp)
             ) {
-                Text(
-                    text = "Select Action for ${gesture.displayName}",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-
-                val availableActions = listOf(
-                    RemapAction.None,
-                    RemapAction.Flashlight,
-                    RemapAction.RotationLock,
-                    RemapAction.MediaPlayPause,
-                    RemapAction.MediaNextTrack,
-                    RemapAction.MediaPreviousTrack,
-                    RemapAction.LaunchApp("com.nothing.camera", "Camera")
-                )
-
-                availableActions.forEach { action ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                onActionSelected(gesture, action)
-                                activeGestureForSheet = null
-                            }
-                            .padding(vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = getActionIcon(action),
-                                contentDescription = null,
-                                tint = NothingRed,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(16.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
                         Text(
-                            text = action.title,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurface
+                            text = "Configure Action",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Assign action for ${gesture.displayName}",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.secondary
                         )
                     }
+
+                    IconButton(onClick = { activeGestureForSheet = null }) {
+                        Icon(imageVector = Icons.Default.Close, contentDescription = "Close", tint = Color.Gray)
+                    }
                 }
-                Spacer(modifier = Modifier.height(24.dp))
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(480.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    // Category 1: Quick Actions
+                    item {
+                        ActionCategoryHeader("QUICK ACTIONS")
+                    }
+                    item {
+                        ActionOptionRow(
+                            title = "No Action",
+                            subtitle = "Do nothing on this gesture",
+                            icon = Icons.Default.TouchApp,
+                            onClick = {
+                                onActionSelected(gesture, RemapAction.None)
+                                activeGestureForSheet = null
+                            }
+                        )
+                    }
+                    item {
+                        ActionOptionRow(
+                            title = "Toggle Flashlight",
+                            subtitle = "Turn rear camera flash on / off",
+                            icon = Icons.Default.FlashlightOn,
+                            onClick = {
+                                onActionSelected(gesture, RemapAction.Flashlight)
+                                activeGestureForSheet = null
+                            }
+                        )
+                    }
+                    item {
+                        ActionOptionRow(
+                            title = "Launch Camera",
+                            subtitle = "Open default camera (secure intent on lockscreen)",
+                            icon = Icons.Default.CameraAlt,
+                            onClick = {
+                                onActionSelected(gesture, RemapAction.Camera)
+                                activeGestureForSheet = null
+                            }
+                        )
+                    }
+                    item {
+                        ActionOptionRow(
+                            title = "Toggle Rotation Lock",
+                            subtitle = "Lock or unlock auto screen rotation",
+                            icon = Icons.Default.ScreenRotation,
+                            onClick = {
+                                onActionSelected(gesture, RemapAction.RotationLock)
+                                activeGestureForSheet = null
+                            }
+                        )
+                    }
+
+                    // Category 2: Media Controls
+                    item {
+                        ActionCategoryHeader("MEDIA CONTROLS")
+                    }
+                    item {
+                        ActionOptionRow(
+                            title = "Play / Pause",
+                            subtitle = "Toggle playback on active media session",
+                            icon = Icons.Default.PlayArrow,
+                            onClick = {
+                                onActionSelected(gesture, RemapAction.MediaPlayPause)
+                                activeGestureForSheet = null
+                            }
+                        )
+                    }
+                    item {
+                        ActionOptionRow(
+                            title = "Next Track",
+                            subtitle = "Skip to next media track",
+                            icon = Icons.Default.SkipNext,
+                            onClick = {
+                                onActionSelected(gesture, RemapAction.MediaNextTrack)
+                                activeGestureForSheet = null
+                            }
+                        )
+                    }
+                    item {
+                        ActionOptionRow(
+                            title = "Previous Track",
+                            subtitle = "Skip to previous media track",
+                            icon = Icons.Default.SkipPrevious,
+                            onClick = {
+                                onActionSelected(gesture, RemapAction.MediaPreviousTrack)
+                                activeGestureForSheet = null
+                            }
+                        )
+                    }
+
+                    // Category 3: Applications & Deep Links
+                    item {
+                        ActionCategoryHeader("APPLICATIONS & SHORTCUTS")
+                    }
+                    item {
+                        ActionOptionRow(
+                            title = "Launch Application...",
+                            subtitle = "Choose an installed app to launch",
+                            icon = Icons.Default.Apps,
+                            onClick = {
+                                isAppPickerOpen = true
+                            }
+                        )
+                    }
+                    item {
+                        ActionOptionRow(
+                            title = "Open Custom URL / Deep Link...",
+                            subtitle = "Enter a safe web URL, tel, or custom deep link",
+                            icon = Icons.Default.Link,
+                            onClick = {
+                                deepLinkInput = "https://"
+                                deepLinkError = null
+                                isDeepLinkDialogOpen = true
+                            }
+                        )
+                    }
+
+                    // Category 4: System Actions
+                    item {
+                        ActionCategoryHeader("SYSTEM ACCESSIBILITY ACTIONS")
+                    }
+                    item {
+                        ActionOptionRow(
+                            title = "Open Notifications",
+                            subtitle = "Pull down system notification shade",
+                            icon = Icons.Default.Notifications,
+                            onClick = {
+                                onActionSelected(gesture, RemapAction.SystemAction(RemapAction.SystemActionType.NOTIFICATIONS))
+                                activeGestureForSheet = null
+                            }
+                        )
+                    }
+                    item {
+                        ActionOptionRow(
+                            title = "Open Quick Settings",
+                            subtitle = "Expand quick settings control tiles",
+                            icon = Icons.Default.Tune,
+                            onClick = {
+                                onActionSelected(gesture, RemapAction.SystemAction(RemapAction.SystemActionType.QUICK_SETTINGS))
+                                activeGestureForSheet = null
+                            }
+                        )
+                    }
+                    item {
+                        ActionOptionRow(
+                            title = "Lock Screen",
+                            subtitle = "Lock device immediately (requires Android 9+)",
+                            icon = Icons.Default.Lock,
+                            onClick = {
+                                onActionSelected(gesture, RemapAction.SystemAction(RemapAction.SystemActionType.LOCK_SCREEN))
+                                activeGestureForSheet = null
+                            }
+                        )
+                    }
+                    item {
+                        ActionOptionRow(
+                            title = "Back",
+                            subtitle = "Simulate system back navigation",
+                            icon = Icons.AutoMirrored.Filled.ArrowBack,
+                            onClick = {
+                                onActionSelected(gesture, RemapAction.SystemAction(RemapAction.SystemActionType.BACK))
+                                activeGestureForSheet = null
+                            }
+                        )
+                    }
+                    item {
+                        ActionOptionRow(
+                            title = "Home",
+                            subtitle = "Navigate to system home launcher",
+                            icon = Icons.Default.Home,
+                            onClick = {
+                                onActionSelected(gesture, RemapAction.SystemAction(RemapAction.SystemActionType.HOME))
+                                activeGestureForSheet = null
+                            }
+                        )
+                    }
+                    item {
+                        ActionOptionRow(
+                            title = "Recents",
+                            subtitle = "Show recent application overview",
+                            icon = Icons.Default.CropLandscape,
+                            onClick = {
+                                onActionSelected(gesture, RemapAction.SystemAction(RemapAction.SystemActionType.RECENTS))
+                                activeGestureForSheet = null
+                            }
+                        )
+                    }
+                    item {
+                        ActionOptionRow(
+                            title = "Take Screenshot",
+                            subtitle = "Capture full device screen",
+                            icon = Icons.Default.PhotoCamera,
+                            onClick = {
+                                onActionSelected(gesture, RemapAction.SystemAction(RemapAction.SystemActionType.TAKE_SCREENSHOT))
+                                activeGestureForSheet = null
+                            }
+                        )
+                    }
+
+                    item {
+                        Spacer(modifier = Modifier.height(24.dp))
+                    }
+                }
             }
         }
     }
+
+    // Installed Applications Picker Dialog
+    if (isAppPickerOpen && activeGestureForSheet != null) {
+        val targetGesture = activeGestureForSheet!!
+        InstalledAppPickerDialog(
+            context = context,
+            onDismiss = { isAppPickerOpen = false },
+            onAppSelected = { app ->
+                onActionSelected(targetGesture, RemapAction.LaunchApp(packageName = app.packageName, appName = app.appName))
+                isAppPickerOpen = false
+                activeGestureForSheet = null
+            }
+        )
+    }
+
+    // Custom Deep Link Input Dialog
+    if (isDeepLinkDialogOpen && activeGestureForSheet != null) {
+        val targetGesture = activeGestureForSheet!!
+        AlertDialog(
+            onDismissRequest = { isDeepLinkDialogOpen = false },
+            title = { Text("Enter URL / Deep Link", fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    Text(
+                        text = "Allowed schemes: https, http, content, tel, mailto",
+                        fontSize = 12.sp,
+                        color = Color.Gray
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = deepLinkInput,
+                        onValueChange = {
+                            deepLinkInput = it
+                            deepLinkError = null
+                        },
+                        isError = deepLinkError != null,
+                        supportingText = {
+                            if (deepLinkError != null) {
+                                Text(deepLinkError!!, color = NothingRed)
+                            }
+                        },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val uriString = deepLinkInput.trim()
+                        val parsed = try { Uri.parse(uriString) } catch (_: Exception) { null }
+                        val scheme = parsed?.scheme?.lowercase()
+                        if (scheme == null || scheme !in DeepLinkHandler.ALLOWED_SCHEMES) {
+                            deepLinkError = "Scheme '${scheme ?: "none"}' is not allowed"
+                        } else {
+                            onActionSelected(targetGesture, RemapAction.DeepLink(uri = uriString))
+                            isDeepLinkDialogOpen = false
+                            activeGestureForSheet = null
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = NothingRed)
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { isDeepLinkDialogOpen = false }) {
+                    Text("Cancel", color = Color.Gray)
+                }
+            }
+        )
+    }
+}
+
+@Composable
+fun ActionCategoryHeader(title: String) {
+    Text(
+        text = title,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.secondary,
+        letterSpacing = 1.sp,
+        modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
+    )
+}
+
+@Composable
+fun ActionOptionRow(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .background(Color(0xFF1E1E1E), RoundedCornerShape(8.dp))
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .background(Color(0xFF2B2B2B), RoundedCornerShape(8.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = NothingRed,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.width(14.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = subtitle,
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.secondary
+            )
+        }
+    }
+}
+
+@Composable
+fun InstalledAppPickerDialog(
+    context: Context,
+    onDismiss: () -> Unit,
+    onAppSelected: (LaunchableAppInfo) -> Unit
+) {
+    var searchQuery by remember { mutableStateOf("") }
+    var appsList by remember { mutableStateOf<List<LaunchableAppInfo>>(emptyList()) }
+
+    LaunchedEffect(Unit) {
+        val pm = context.packageManager
+        val intent = Intent(Intent.ACTION_MAIN, null).apply {
+            addCategory(Intent.CATEGORY_LAUNCHER)
+        }
+        val resolveInfos = pm.queryIntentActivities(intent, 0)
+        appsList = resolveInfos.map {
+            LaunchableAppInfo(
+                appName = it.loadLabel(pm).toString(),
+                packageName = it.activityInfo.packageName,
+                iconDrawable = try { it.loadIcon(pm) } catch (_: Exception) { null }
+            )
+        }.sortedBy { it.appName.lowercase() }
+    }
+
+    val filteredApps = if (searchQuery.isBlank()) {
+        appsList
+    } else {
+        appsList.filter {
+            it.appName.contains(searchQuery, ignoreCase = true) ||
+                    it.packageName.contains(searchQuery, ignoreCase = true)
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text("Select Application", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Search installed apps...", fontSize = 13.sp) },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = Color.Gray) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        text = {
+            if (filteredApps.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("No applications found", color = Color.Gray, fontSize = 13.sp)
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(320.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(filteredApps) { app ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onAppSelected(app) }
+                                .padding(vertical = 8.dp, horizontal = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val bitmap = remember(app.iconDrawable) {
+                                try {
+                                    app.iconDrawable?.toBitmap()
+                                } catch (_: Exception) { null }
+                            }
+
+                            if (bitmap != null) {
+                                Image(
+                                    bitmap = bitmap.asImageBitmap(),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(36.dp)
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .background(Color(0xFF333333), RoundedCornerShape(8.dp)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Default.Apps, contentDescription = null, tint = Color.LightGray)
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.width(12.dp))
+
+                            Column {
+                                Text(
+                                    text = app.appName,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = app.packageName,
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = Color.Gray
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = Color.Gray)
+            }
+        }
+    )
 }
 
 @Composable
@@ -317,7 +794,7 @@ fun DeviceStatusCard(
             HorizontalDivider(color = Color(0xFF262626))
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Accessibility Status Indicator (Phase 3)
+            // Accessibility Status Indicator
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -338,28 +815,15 @@ fun DeviceStatusCard(
                     )
                 }
 
-                Row {
-                    if (!isAccessibilityActive) {
-                        OutlinedButton(
-                            onClick = {
-                                context.startActivity(AccessibilityHelper.createAccessibilitySettingsIntent())
-                            },
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.height(34.dp)
-                        ) {
-                            Text("Enable", fontSize = 11.sp, color = NothingRed)
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
-                    }
-
-                    Button(
-                        onClick = onOpenDiagnostic,
-                        shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF262626)),
-                        modifier = Modifier.height(34.dp)
-                    ) {
-                        Text("Diagnostics", fontSize = 11.sp, color = Color.White)
-                    }
+                OutlinedButton(
+                    onClick = onOpenDiagnostic,
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        text = "Diagnostic Console",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
                 }
             }
         }
@@ -376,7 +840,7 @@ fun MappingCard(
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(12.dp),
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() }
@@ -441,11 +905,22 @@ private fun getActionIcon(action: RemapAction): ImageVector {
     return when (action) {
         is RemapAction.None -> Icons.Default.TouchApp
         is RemapAction.Flashlight -> Icons.Default.FlashlightOn
+        is RemapAction.Camera -> Icons.Default.CameraAlt
         is RemapAction.RotationLock -> Icons.Default.ScreenRotation
         is RemapAction.MediaPlayPause -> Icons.Default.PlayArrow
         is RemapAction.MediaNextTrack -> Icons.Default.SkipNext
         is RemapAction.MediaPreviousTrack -> Icons.Default.SkipPrevious
-        is RemapAction.LaunchApp -> Icons.Default.CameraAlt
-        else -> Icons.Default.TouchApp
+        is RemapAction.LaunchApp -> Icons.Default.Apps
+        is RemapAction.AppShortcut -> Icons.Default.Apps
+        is RemapAction.DeepLink -> Icons.Default.Link
+        is RemapAction.SystemAction -> when (action.systemType) {
+            RemapAction.SystemActionType.NOTIFICATIONS -> Icons.Default.Notifications
+            RemapAction.SystemActionType.QUICK_SETTINGS -> Icons.Default.Tune
+            RemapAction.SystemActionType.LOCK_SCREEN -> Icons.Default.Lock
+            RemapAction.SystemActionType.BACK -> Icons.AutoMirrored.Filled.ArrowBack
+            RemapAction.SystemActionType.HOME -> Icons.Default.Home
+            RemapAction.SystemActionType.RECENTS -> Icons.Default.CropLandscape
+            RemapAction.SystemActionType.TAKE_SCREENSHOT -> Icons.Default.PhotoCamera
+        }
     }
 }

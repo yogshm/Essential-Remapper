@@ -6,24 +6,28 @@ import android.content.Context
 import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
 import com.essentialremapper.EssentialRemapperApp
+import com.essentialremapper.data.model.RemapperSettings
+import com.essentialremapper.domain.action.ActionDispatcher
+import com.essentialremapper.domain.action.HapticsController
+import com.essentialremapper.domain.action.handlers.SystemActionHandler
 import com.essentialremapper.domain.device.DeviceProfile
 import com.essentialremapper.domain.gesture.ButtonEventDetector
+import com.essentialremapper.domain.gesture.GestureRecognizer
 import com.essentialremapper.domain.gesture.RawButtonAction
 import com.essentialremapper.domain.gesture.RawButtonEvent
 import com.essentialremapper.util.AppLogger
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-
-import com.essentialremapper.domain.gesture.GestureRecognizer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * Privacy-focused AccessibilityService dedicated strictly to detecting physical Essential Button events.
+ * Privacy-focused AccessibilityService dedicated strictly to detecting physical Essential Button events
+ * and dispatching configured user actions.
  *
  * Privacy Guarantees:
  * - canRetrieveWindowContent is FALSE
@@ -42,12 +46,26 @@ class EssentialButtonAccessibilityService : AccessibilityService() {
 
         val buttonEventDetector = ButtonEventDetector(maxHistorySize = 50)
         val gestureRecognizer = GestureRecognizer()
+
+        var activeServiceInstance: EssentialButtonAccessibilityService? = null
+            private set
+
+        val actionDispatcher: ActionDispatcher by lazy {
+            val app = EssentialRemapperApp.instance
+            ActionDispatcher(
+                context = app,
+                settingsProvider = { app.settingsRepository.settings.value },
+                hapticsController = HapticsController(app),
+                systemActionHandler = SystemActionHandler { activeServiceInstance }
+            )
+        }
     }
 
     private var serviceScope: CoroutineScope? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        activeServiceInstance = this
         _isServiceConnected.value = true
         AppLogger.i("EssentialButtonAccessibilityService CONNECTED", TAG)
 
@@ -68,6 +86,14 @@ class EssentialButtonAccessibilityService : AccessibilityService() {
                 }
             }
         }
+
+        // Connect GestureRecognizer -> ActionDispatcher
+        scope.launch {
+            gestureRecognizer.gestureEvents.collect { gestureEvent ->
+                AppLogger.d("Forwarding recognized gesture ${gestureEvent.type.displayName} to ActionDispatcher", TAG)
+                actionDispatcher.dispatch(gestureEvent)
+            }
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -82,6 +108,7 @@ class EssentialButtonAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        activeServiceInstance = null
         _isServiceConnected.value = false
         serviceScope?.cancel()
         serviceScope = null
@@ -127,7 +154,7 @@ class EssentialButtonAccessibilityService : AccessibilityService() {
             buttonEventDetector.onButtonEvent(rawButtonEvent)
             gestureRecognizer.onButtonEvent(rawButtonEvent)
 
-            // In Phase 3 diagnostic mode, do not swallow the event to observe OS behavior
+            // In Phase 5, pass through to avoid breaking Essential Space until Phase 6+
             return super.onKeyEvent(event)
         }
 

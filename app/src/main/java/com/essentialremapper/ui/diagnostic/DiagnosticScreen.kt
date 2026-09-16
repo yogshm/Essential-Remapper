@@ -1,7 +1,6 @@
 package com.essentialremapper.ui.diagnostic
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,11 +14,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -30,7 +31,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -54,6 +54,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.essentialremapper.accessibility.EssentialButtonAccessibilityService
+import com.essentialremapper.domain.action.ActionExecutionEvent
+import com.essentialremapper.domain.action.ActionResult
 import com.essentialremapper.domain.device.DeviceProfile
 import com.essentialremapper.domain.gesture.GestureEvent
 import com.essentialremapper.domain.gesture.GestureType
@@ -80,6 +82,9 @@ fun DiagnosticScreen(
     val latestGesture by EssentialButtonAccessibilityService.gestureRecognizer.latestGesture.collectAsState()
     val diagnosticGestures by EssentialButtonAccessibilityService.gestureRecognizer.diagnosticGestureHistory.collectAsState()
 
+    val latestActionExecution by EssentialButtonAccessibilityService.actionDispatcher.latestExecution.collectAsState()
+    val diagnosticActions by EssentialButtonAccessibilityService.actionDispatcher.actionHistory.collectAsState()
+
     var selectedTabIndex by remember { mutableIntStateOf(0) }
 
     Scaffold(
@@ -94,7 +99,7 @@ fun DiagnosticScreen(
                             color = MaterialTheme.colorScheme.onBackground
                         )
                         Text(
-                            text = "Phase 4 Gesture Recognition Console",
+                            text = "Phase 5 Action Dispatch Console",
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.secondary
                         )
@@ -114,6 +119,7 @@ fun DiagnosticScreen(
                         onClick = {
                             EssentialButtonAccessibilityService.buttonEventDetector.clearHistory()
                             EssentialButtonAccessibilityService.gestureRecognizer.clearDiagnosticHistory()
+                            EssentialButtonAccessibilityService.actionDispatcher.clearHistory()
                         }
                     ) {
                         Icon(
@@ -136,7 +142,7 @@ fun DiagnosticScreen(
                 .padding(innerPadding)
                 .padding(horizontal = 16.dp)
         ) {
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             // 1. Accessibility Service Status Card
             Card(
@@ -182,22 +188,22 @@ fun DiagnosticScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
-            // 2. GESTURE DETECTION: Most Recent Recognized Gesture Card
+            // 2. ACTION EXECUTION CARD (Phase 5)
             Card(
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF161616)),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(14.dp)) {
+                Column(modifier = Modifier.padding(12.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "GESTURE DETECTION",
+                            text = "ACTION EXECUTION",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.secondary,
@@ -205,71 +211,85 @@ fun DiagnosticScreen(
                         )
 
                         Text(
-                            text = "FSM Engine Active",
+                            text = if (latestActionExecution != null) "Last Dispatched" else "Idle",
                             fontSize = 10.sp,
                             fontFamily = FontFamily.Monospace,
-                            color = StatusGreenLight
+                            color = if (latestActionExecution != null) StatusGreenLight else Color.Gray
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
-                    if (latestGesture != null) {
-                        val gesture = latestGesture!!
+                    if (latestActionExecution != null) {
+                        val exec = latestActionExecution!!
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = exec.gesture.displayName,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "→",
+                                        fontSize = 13.sp,
+                                        color = Color.Gray
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = exec.action.title,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(2.dp))
+
+                                Text(
+                                    text = exec.result.message,
+                                    fontSize = 11.sp,
+                                    color = Color(0xFFBBBBBB)
+                                )
+                            }
+
+                            Column(horizontalAlignment = Alignment.End) {
                                 Box(
                                     modifier = Modifier
                                         .background(
-                                            color = when (gesture.type) {
-                                                GestureType.SinglePress -> Color(0xFF007ACC)
-                                                GestureType.DoublePress -> NothingRed
-                                                GestureType.LongPress -> Color(0xFFE65100)
+                                            color = when (exec.result) {
+                                                is ActionResult.Success -> StatusGreen
+                                                is ActionResult.Failure -> NothingRed
+                                                is ActionResult.Unavailable -> Color(0xFFE65100)
                                             },
-                                            shape = RoundedCornerShape(6.dp)
+                                            shape = RoundedCornerShape(4.dp)
                                         )
-                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
                                 ) {
                                     Text(
-                                        text = gesture.type.displayName,
-                                        fontSize = 15.sp,
+                                        text = when (exec.result) {
+                                            is ActionResult.Success -> "SUCCESS"
+                                            is ActionResult.Failure -> "FAILURE"
+                                            is ActionResult.Unavailable -> "BLOCKED"
+                                        },
+                                        fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = Color.White
                                     )
                                 }
 
-                                if (gesture.isScreenLocked) {
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Box(
-                                        modifier = Modifier
-                                            .background(Color(0xFF3E2723), RoundedCornerShape(4.dp))
-                                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                                    ) {
-                                        Text(
-                                            text = "LOCKED",
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color(0xFFFFB74D)
-                                        )
-                                    }
-                                }
-                            }
+                                Spacer(modifier = Modifier.height(4.dp))
 
-                            Column(horizontalAlignment = Alignment.End) {
                                 Text(
-                                    text = gesture.formattedTime,
-                                    fontSize = 12.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Medium,
-                                    color = Color.White
-                                )
-                                Text(
-                                    text = "Latest Gesture",
+                                    text = exec.formattedTime,
                                     fontSize = 10.sp,
+                                    fontFamily = FontFamily.Monospace,
                                     color = Color.Gray
                                 )
                             }
@@ -280,15 +300,15 @@ fun DiagnosticScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
-                                imageVector = Icons.Default.TouchApp,
+                                imageVector = Icons.Default.Bolt,
                                 contentDescription = null,
-                                modifier = Modifier.size(20.dp),
+                                modifier = Modifier.size(18.dp),
                                 tint = Color.Gray
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Awaiting Essential Button Gesture...",
-                                fontSize = 13.sp,
+                                text = "Awaiting physical button press to execute configured action...",
+                                fontSize = 12.sp,
                                 color = Color.Gray
                             )
                         }
@@ -296,9 +316,9 @@ fun DiagnosticScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
-            // 3. Tab Selector: Recognized Gestures vs Raw Key Events
+            // 3. Tab Selector: Actions (N) | Gestures (M) | Raw Events (K)
             TabRow(
                 selectedTabIndex = selectedTabIndex,
                 containerColor = Color.Transparent,
@@ -316,9 +336,9 @@ fun DiagnosticScreen(
                     onClick = { selectedTabIndex = 0 },
                     text = {
                         Text(
-                            text = "Gestures (${diagnosticGestures.size})",
+                            text = "Actions (${diagnosticActions.size})",
                             fontWeight = if (selectedTabIndex == 0) FontWeight.Bold else FontWeight.Normal,
-                            fontSize = 13.sp
+                            fontSize = 12.sp
                         )
                     }
                 )
@@ -327,9 +347,20 @@ fun DiagnosticScreen(
                     onClick = { selectedTabIndex = 1 },
                     text = {
                         Text(
-                            text = "Raw Events (${diagnosticRawEvents.size})",
+                            text = "Gestures (${diagnosticGestures.size})",
                             fontWeight = if (selectedTabIndex == 1) FontWeight.Bold else FontWeight.Normal,
-                            fontSize = 13.sp
+                            fontSize = 12.sp
+                        )
+                    }
+                )
+                Tab(
+                    selected = selectedTabIndex == 2,
+                    onClick = { selectedTabIndex = 2 },
+                    text = {
+                        Text(
+                            text = "Raw (${diagnosticRawEvents.size})",
+                            fontWeight = if (selectedTabIndex == 2) FontWeight.Bold else FontWeight.Normal,
+                            fontSize = 12.sp
                         )
                     }
                 )
@@ -338,78 +369,171 @@ fun DiagnosticScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             // 4. Tab Content
-            if (selectedTabIndex == 0) {
-                // Recognized Gestures History
-                if (diagnosticGestures.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(24.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = "No Gestures Recognized Yet",
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 15.sp,
-                                color = Color.Gray
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = "Press the physical Essential Button:\n• Single Press: Click and release (<350ms window)\n• Double Press: Click twice quickly\n• Long Press: Hold down for >700ms",
-                                fontSize = 12.sp,
-                                color = Color(0xFF777777),
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                lineHeight = 18.sp
-                            )
-                        }
-                    }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(diagnosticGestures) { gesture ->
-                            GestureHistoryCard(gesture)
+            when (selectedTabIndex) {
+                0 -> {
+                    // Actions History
+                    if (diagnosticActions.isEmpty()) {
+                        EmptyConsolePlaceholder(
+                            title = "No Actions Executed Yet",
+                            description = "Configured actions (Flashlight, Camera, Media, Apps) will log their execution results and timestamps here."
+                        )
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(diagnosticActions) { exec ->
+                                ActionHistoryCard(exec)
+                            }
                         }
                     }
                 }
-            } else {
-                // Raw Key Events History
-                if (diagnosticRawEvents.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(24.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = "Awaiting Button Press",
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 15.sp,
-                                color = Color.Gray
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = "Raw physical key events (scanCode 250) will be listed here with hardware timestamps.",
-                                fontSize = 12.sp,
-                                color = Color(0xFF777777),
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                lineHeight = 17.sp
-                            )
-                        }
-                    }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(diagnosticRawEvents) { event ->
-                            DiagnosticEventCard(event)
+                1 -> {
+                    // Recognized Gestures History
+                    if (diagnosticGestures.isEmpty()) {
+                        EmptyConsolePlaceholder(
+                            title = "No Gestures Recognized Yet",
+                            description = "Press the physical Essential Button:\n• Single Press: Click & release (<350ms)\n• Double Press: Click twice quickly\n• Long Press: Hold down for >700ms"
+                        )
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(diagnosticGestures) { gesture ->
+                                GestureHistoryCard(gesture)
+                            }
                         }
                     }
                 }
+                2 -> {
+                    // Raw Key Events History
+                    if (diagnosticRawEvents.isEmpty()) {
+                        EmptyConsolePlaceholder(
+                            title = "Awaiting Button Press",
+                            description = "Raw physical key events (scanCode 250) will be listed here with hardware timestamps."
+                        )
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(diagnosticRawEvents) { event ->
+                                DiagnosticEventCard(event)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ActionHistoryCard(exec: ActionExecutionEvent) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF191919)),
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .background(
+                                color = when (exec.gesture) {
+                                    GestureType.SinglePress -> Color(0xFF007ACC)
+                                    GestureType.DoublePress -> NothingRed
+                                    GestureType.LongPress -> Color(0xFFE65100)
+                                },
+                                shape = RoundedCornerShape(4.dp)
+                            )
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                    ) {
+                        Text(
+                            text = exec.gesture.displayName,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    Text(
+                        text = exec.action.title,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+
+                    if (exec.isScreenLocked) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .background(Color(0xFF3E2723), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                        ) {
+                            Text(
+                                text = "LOCKED",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFFFB74D)
+                            )
+                        }
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .background(
+                            color = when (exec.result) {
+                                is ActionResult.Success -> StatusGreen
+                                is ActionResult.Failure -> NothingRed
+                                is ActionResult.Unavailable -> Color(0xFFE65100)
+                            },
+                            shape = RoundedCornerShape(4.dp)
+                        )
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = when (exec.result) {
+                            is ActionResult.Success -> "SUCCESS"
+                            is ActionResult.Failure -> "FAILURE"
+                            is ActionResult.Unavailable -> "BLOCKED"
+                        },
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = exec.result.message,
+                    fontSize = 11.sp,
+                    color = Color(0xFFB0B0B0),
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+
+                Text(
+                    text = exec.formattedTime,
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = Color.Gray
+                )
             }
         }
     }
@@ -549,6 +673,33 @@ fun DiagnosticEventCard(event: RawButtonEvent) {
                     fontFamily = FontFamily.Monospace
                 )
             }
+        }
+    }
+}
+
+@Composable
+fun EmptyConsolePlaceholder(title: String, description: String) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = title,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 15.sp,
+                color = Color.Gray
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = description,
+                fontSize = 12.sp,
+                color = Color(0xFF777777),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                lineHeight = 18.sp
+            )
         }
     }
 }
