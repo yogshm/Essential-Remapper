@@ -1,6 +1,7 @@
 package com.essentialremapper.ui.diagnostic
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -30,12 +32,19 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.TabRowDefaults
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -46,6 +55,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.essentialremapper.accessibility.EssentialButtonAccessibilityService
 import com.essentialremapper.domain.device.DeviceProfile
+import com.essentialremapper.domain.gesture.GestureEvent
+import com.essentialremapper.domain.gesture.GestureType
 import com.essentialremapper.domain.gesture.RawButtonAction
 import com.essentialremapper.domain.gesture.RawButtonEvent
 import com.essentialremapper.ui.theme.NothingRed
@@ -65,7 +76,11 @@ fun DiagnosticScreen(
     val isEnabledInSettings = AccessibilityHelper.isAccessibilityServiceEnabled(context)
     val isServiceActive = isConnected || isEnabledInSettings
 
-    val diagnosticEvents by EssentialButtonAccessibilityService.buttonEventDetector.diagnosticHistory.collectAsState()
+    val diagnosticRawEvents by EssentialButtonAccessibilityService.buttonEventDetector.diagnosticHistory.collectAsState()
+    val latestGesture by EssentialButtonAccessibilityService.gestureRecognizer.latestGesture.collectAsState()
+    val diagnosticGestures by EssentialButtonAccessibilityService.gestureRecognizer.diagnosticGestureHistory.collectAsState()
+
+    var selectedTabIndex by remember { mutableIntStateOf(0) }
 
     Scaffold(
         topBar = {
@@ -79,7 +94,7 @@ fun DiagnosticScreen(
                             color = MaterialTheme.colorScheme.onBackground
                         )
                         Text(
-                            text = "Phase 3 Hardware Interception Console",
+                            text = "Phase 4 Gesture Recognition Console",
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.secondary
                         )
@@ -90,6 +105,20 @@ fun DiagnosticScreen(
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
+                            tint = MaterialTheme.colorScheme.onBackground
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = {
+                            EssentialButtonAccessibilityService.buttonEventDetector.clearHistory()
+                            EssentialButtonAccessibilityService.gestureRecognizer.clearDiagnosticHistory()
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DeleteSweep,
+                            contentDescription = "Clear All History",
                             tint = MaterialTheme.colorScheme.onBackground
                         )
                     }
@@ -107,9 +136,9 @@ fun DiagnosticScreen(
                 .padding(innerPadding)
                 .padding(horizontal = 16.dp)
         ) {
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
-            // Service Status Card
+            // 1. Accessibility Service Status Card
             Card(
                 colors = CardDefaults.cardColors(
                     containerColor = if (isServiceActive) StatusGreenContainer else Color(0xFF2C1616)
@@ -117,7 +146,7 @@ fun DiagnosticScreen(
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(14.dp)) {
+                Column(modifier = Modifier.padding(12.dp)) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -126,14 +155,14 @@ fun DiagnosticScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = if (isServiceActive) "●" else "○",
-                                fontSize = 16.sp,
+                                fontSize = 14.sp,
                                 color = if (isServiceActive) StatusGreenLight else Color(0xFFE57373)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = if (isServiceActive) "Accessibility enabled" else "Accessibility disabled",
+                                text = if (isServiceActive) "Service Active (scanCode ${deviceProfile.essentialButtonScanCode})" else "Service Disabled",
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
+                                fontSize = 13.sp,
                                 color = if (isServiceActive) StatusGreenLight else Color(0xFFE57373)
                             )
                         }
@@ -146,124 +175,306 @@ fun DiagnosticScreen(
                                 colors = ButtonDefaults.buttonColors(containerColor = NothingRed),
                                 shape = RoundedCornerShape(8.dp)
                             ) {
-                                Text("Enable", fontSize = 12.sp)
+                                Text("Enable", fontSize = 11.sp)
                             }
                         }
                     }
-
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = if (isServiceActive) {
-                            "Service is active. Filtering hardware scanCode ${deviceProfile.essentialButtonScanCode}. Privacy enforced: canRetrieveWindowContent=false."
-                        } else {
-                            "Service is not yet enabled. Tap 'Enable' to open Android Accessibility settings and turn on 'Essential Button Diagnostic Service'."
-                        },
-                        fontSize = 11.sp,
-                        color = Color(0xFFCCCCCC),
-                        lineHeight = 16.sp
-                    )
                 }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Hardware Target Info
+            // 2. GESTURE DETECTION: Most Recent Recognized Gesture Card
             Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                shape = RoundedCornerShape(10.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF161616)),
+                shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Text(
-                            text = deviceProfile.displayName,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = "Filter: ScanCode ${deviceProfile.essentialButtonScanCode} • KeyCode ${deviceProfile.essentialButtonKeyCode}",
+                            text = "GESTURE DETECTION",
                             fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.secondary,
+                            letterSpacing = 1.sp
+                        )
+
+                        Text(
+                            text = "FSM Engine Active",
+                            fontSize = 10.sp,
                             fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.secondary
+                            color = StatusGreenLight
                         )
                     }
 
-                    OutlinedButton(
-                        onClick = {
-                            EssentialButtonAccessibilityService.buttonEventDetector.clearHistory()
-                        },
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.DeleteSweep,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                            tint = Color.White
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Clear", fontSize = 11.sp, color = Color.White)
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    if (latestGesture != null) {
+                        val gesture = latestGesture!!
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .background(
+                                            color = when (gesture.type) {
+                                                GestureType.SinglePress -> Color(0xFF007ACC)
+                                                GestureType.DoublePress -> NothingRed
+                                                GestureType.LongPress -> Color(0xFFE65100)
+                                            },
+                                            shape = RoundedCornerShape(6.dp)
+                                        )
+                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        text = gesture.type.displayName,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                }
+
+                                if (gesture.isScreenLocked) {
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .background(Color(0xFF3E2723), RoundedCornerShape(4.dp))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = "LOCKED",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFFFFB74D)
+                                        )
+                                    }
+                                }
+                            }
+
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(
+                                    text = gesture.formattedTime,
+                                    fontSize = 12.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color.White
+                                )
+                                Text(
+                                    text = "Latest Gesture",
+                                    fontSize = 10.sp,
+                                    color = Color.Gray
+                                )
+                            }
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.TouchApp,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp),
+                                tint = Color.Gray
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Awaiting Essential Button Gesture...",
+                                fontSize = 13.sp,
+                                color = Color.Gray
+                            )
+                        }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            // 3. Tab Selector: Recognized Gestures vs Raw Key Events
+            TabRow(
+                selectedTabIndex = selectedTabIndex,
+                containerColor = Color.Transparent,
+                contentColor = Color.White,
+                indicator = { tabPositions ->
+                    TabRowDefaults.SecondaryIndicator(
+                        modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTabIndex]),
+                        color = NothingRed
+                    )
+                },
+                divider = { HorizontalDivider(color = Color(0xFF262626)) }
             ) {
-                Text(
-                    text = "DETECTED EVENTS (${diagnosticEvents.size} / 50)",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.secondary
+                Tab(
+                    selected = selectedTabIndex == 0,
+                    onClick = { selectedTabIndex = 0 },
+                    text = {
+                        Text(
+                            text = "Gestures (${diagnosticGestures.size})",
+                            fontWeight = if (selectedTabIndex == 0) FontWeight.Bold else FontWeight.Normal,
+                            fontSize = 13.sp
+                        )
+                    }
+                )
+                Tab(
+                    selected = selectedTabIndex == 1,
+                    onClick = { selectedTabIndex = 1 },
+                    text = {
+                        Text(
+                            text = "Raw Events (${diagnosticRawEvents.size})",
+                            fontWeight = if (selectedTabIndex == 1) FontWeight.Bold else FontWeight.Normal,
+                            fontSize = 13.sp
+                        )
+                    }
                 )
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
-            HorizontalDivider(color = Color(0xFF262626))
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
-            if (diagnosticEvents.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = "Awaiting Button Press",
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 15.sp,
-                            color = Color.Gray
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "Press the physical Essential Button on your phone (Single / Double / Long press, unlocked or locked).",
-                            fontSize = 12.sp,
-                            color = Color(0xFF777777),
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                            lineHeight = 17.sp
-                        )
+            // 4. Tab Content
+            if (selectedTabIndex == 0) {
+                // Recognized Gestures History
+                if (diagnosticGestures.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "No Gestures Recognized Yet",
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 15.sp,
+                                color = Color.Gray
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Press the physical Essential Button:\n• Single Press: Click and release (<350ms window)\n• Double Press: Click twice quickly\n• Long Press: Hold down for >700ms",
+                                fontSize = 12.sp,
+                                color = Color(0xFF777777),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                lineHeight = 18.sp
+                            )
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(diagnosticGestures) { gesture ->
+                            GestureHistoryCard(gesture)
+                        }
                     }
                 }
             } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(diagnosticEvents) { event ->
-                        DiagnosticEventCard(event)
+                // Raw Key Events History
+                if (diagnosticRawEvents.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "Awaiting Button Press",
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 15.sp,
+                                color = Color.Gray
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Raw physical key events (scanCode 250) will be listed here with hardware timestamps.",
+                                fontSize = 12.sp,
+                                color = Color(0xFF777777),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                lineHeight = 17.sp
+                            )
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(diagnosticRawEvents) { event ->
+                            DiagnosticEventCard(event)
+                        }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun GestureHistoryCard(gesture: GestureEvent) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF191919)),
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .background(
+                            color = when (gesture.type) {
+                                GestureType.SinglePress -> Color(0xFF007ACC)
+                                GestureType.DoublePress -> NothingRed
+                                GestureType.LongPress -> Color(0xFFE65100)
+                            },
+                            shape = RoundedCornerShape(4.dp)
+                        )
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = gesture.type.displayName,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+
+                if (gesture.isScreenLocked) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .background(Color(0xFF3E2723), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "LOCKED",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFFFB74D)
+                        )
+                    }
+                }
+            }
+
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = gesture.formattedTime,
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Medium,
+                    color = Color.White
+                )
             }
         }
     }

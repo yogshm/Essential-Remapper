@@ -15,6 +15,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+import com.essentialremapper.domain.gesture.GestureRecognizer
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+
 /**
  * Privacy-focused AccessibilityService dedicated strictly to detecting physical Essential Button events.
  *
@@ -34,12 +41,33 @@ class EssentialButtonAccessibilityService : AccessibilityService() {
         val isServiceConnected: StateFlow<Boolean> = _isServiceConnected.asStateFlow()
 
         val buttonEventDetector = ButtonEventDetector(maxHistorySize = 50)
+        val gestureRecognizer = GestureRecognizer()
     }
+
+    private var serviceScope: CoroutineScope? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         _isServiceConnected.value = true
         AppLogger.i("EssentialButtonAccessibilityService CONNECTED", TAG)
+
+        val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+        serviceScope = scope
+
+        // Synchronize gesture timings dynamically with settings
+        val app = applicationContext as? EssentialRemapperApp
+        val settingsRepo = app?.settingsRepository
+        if (settingsRepo != null) {
+            scope.launch {
+                settingsRepo.settings.collect { settings ->
+                    gestureRecognizer.updateTimings(
+                        doublePressTimeout = settings.doublePressTimeoutMs,
+                        longPressDuration = settings.longPressDurationMs
+                    )
+                    AppLogger.d("GestureRecognizer timings updated: doublePress=${settings.doublePressTimeoutMs}ms, longPress=${settings.longPressDurationMs}ms", TAG)
+                }
+            }
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -49,11 +77,15 @@ class EssentialButtonAccessibilityService : AccessibilityService() {
     override fun onInterrupt() {
         AppLogger.w("EssentialButtonAccessibilityService INTERRUPTED", TAG)
         _isServiceConnected.value = false
+        gestureRecognizer.reset()
     }
 
     override fun onDestroy() {
         super.onDestroy()
         _isServiceConnected.value = false
+        serviceScope?.cancel()
+        serviceScope = null
+        gestureRecognizer.reset()
         AppLogger.i("EssentialButtonAccessibilityService DESTROYED", TAG)
     }
 
@@ -93,6 +125,7 @@ class EssentialButtonAccessibilityService : AccessibilityService() {
 
             AppLogger.d("Matched physical button event: ${rawButtonEvent.toDiagnosticString()}", TAG)
             buttonEventDetector.onButtonEvent(rawButtonEvent)
+            gestureRecognizer.onButtonEvent(rawButtonEvent)
 
             // In Phase 3 diagnostic mode, do not swallow the event to observe OS behavior
             return super.onKeyEvent(event)
@@ -105,7 +138,7 @@ class EssentialButtonAccessibilityService : AccessibilityService() {
         return try {
             val app = applicationContext as? EssentialRemapperApp
             val selectedId = app?.settingsRepository?.settings?.value?.selectedDeviceId
-            if (selectedId != null && app.deviceRepository != null) {
+            if (selectedId != null) {
                 app.deviceRepository.getProfileById(selectedId)
             } else {
                 DeviceProfile.NOTHING_PHONE_3A_PRO
